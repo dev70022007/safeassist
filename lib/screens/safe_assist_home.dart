@@ -683,6 +683,14 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
   }
 
   Widget _buildMovementSummary() {
+    final bool hazardDetected = frontObstacle || rearObstacle || downwardHazard;
+
+    final Color statusColor = hazardDetected
+        ? danger
+        : isMoving
+        ? warning
+        : teal;
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: _panelDecoration(),
@@ -692,12 +700,16 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: teal.withValues(alpha: 0.12),
+              color: statusColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
-              isMoving ? Icons.navigation : Icons.pause_circle_outline,
-              color: teal,
+              hazardDetected
+                  ? Icons.warning_amber_rounded
+                  : isMoving
+                  ? Icons.navigation
+                  : Icons.pause_circle_outline,
+              color: statusColor,
               size: 25,
             ),
           ),
@@ -707,7 +719,7 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Current movement',
+                  'Current movement · DEMO',
                   style: TextStyle(color: muted, fontSize: 12),
                 ),
                 const SizedBox(height: 4),
@@ -718,12 +730,26 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                const SizedBox(height: 5),
+                Text(
+                  safetyMessage,
+                  style: TextStyle(color: statusColor, fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Simulated status only — hardware not connected',
+                  style: TextStyle(color: muted, fontSize: 10),
+                ),
               ],
             ),
           ),
           Icon(
-            isMoving ? Icons.circle : Icons.check_circle,
-            color: isMoving ? warning : teal,
+            hazardDetected
+                ? Icons.warning_rounded
+                : isMoving
+                ? Icons.circle
+                : Icons.check_circle,
+            color: statusColor,
             size: 17,
           ),
         ],
