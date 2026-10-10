@@ -20,6 +20,22 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
   bool get frontObstacle => controller.frontObstacle;
   bool get isMoving => controller.isMoving;
   int get frontDistance => controller.frontDistance;
+  bool get rearObstacle => controller.rearObstacle;
+  bool get downwardHazard => controller.downwardHazard;
+  int get rearDistance => controller.rearDistance;
+  int get downwardDistance => controller.downwardDistance;
+
+  void toggleRearObstacle(bool value) {
+    setState(() {
+      controller.toggleRearObstacle(value);
+    });
+  }
+
+  void toggleDownwardHazard(bool value) {
+    setState(() {
+      controller.toggleDownwardHazard(value);
+    });
+  }
 
   void stopMovement() {
     setState(() {
@@ -187,11 +203,19 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
                     child: _statusCard(
                       icon: Icons.shield_outlined,
                       title: 'Safety status',
-                      value: frontObstacle ? 'Obstacle detected' : 'Demo ready',
+                      value: (frontObstacle || rearObstacle || downwardHazard)
+                          ? 'Hazard detected'
+                          : 'Demo ready',
                       subtitle: frontObstacle
-                          ? 'Front path blocked in simulation'
-                          : 'Simulated sensors active',
-                      color: frontObstacle ? danger : teal,
+                          ? 'Front obstacle simulated'
+                          : rearObstacle
+                          ? 'Rear obstacle simulated'
+                          : downwardHazard
+                          ? 'Downward hazard simulated'
+                          : 'All simulated paths clear',
+                      color: (frontObstacle || rearObstacle || downwardHazard)
+                          ? danger
+                          : teal,
                     ),
                   ),
                 ],
@@ -489,136 +513,55 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
             warning,
           ),
           const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: _panelDecoration(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'FRONT SENSOR',
-                  style: TextStyle(
-                    color: muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '$frontDistance',
-                      style: TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        color: frontObstacle ? danger : teal,
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 9, left: 7),
-                      child: Text(
-                        'cm · simulated',
-                        style: TextStyle(color: muted, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: (frontDistance / 150).clamp(0.0, 1.0).toDouble(),
-                  minHeight: 7,
-                  borderRadius: BorderRadius.circular(10),
-                  backgroundColor: panelLight,
-                  color: frontObstacle ? danger : teal,
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Icon(
-                      frontObstacle ? Icons.warning_amber : Icons.check_circle,
-                      color: frontObstacle ? danger : teal,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        frontObstacle
-                            ? 'Obstacle present in the demo'
-                            : 'Front path clear in the demo',
-                        style: TextStyle(
-                          color: frontObstacle ? danger : teal,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-            tileColor: panel,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
-            ),
-            title: const Text(
-              'Simulate front obstacle',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: const Text(
-              'Test whether forward movement is blocked',
-              style: TextStyle(color: muted, fontSize: 12),
-            ),
-            secondary: Icon(
-              Icons.warning_amber_rounded,
-              color: frontObstacle ? danger : muted,
-            ),
-            activeThumbColor: teal,
-            value: frontObstacle,
-            onChanged: toggleObstacle,
-          ),
-          const SizedBox(height: 22),
-          const Text(
-            'OTHER SENSOR ZONES',
-            style: TextStyle(
-              color: muted,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.4,
-            ),
+          _buildSensorZone(
+            title: 'FRONT SENSOR',
+            distance: frontDistance,
+            isHazard: frontObstacle,
+            hazardLabel: 'Obstacle present in the demo',
+            clearLabel: 'Front path clear in the demo',
+            icon: Icons.north,
           ),
           const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = (constraints.maxWidth - 12) / 2;
-
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: width,
-                    child: _sensorCard('Rear', '120 cm', Icons.south, teal),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: _sensorCard('Left', '65 cm', Icons.west, teal),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: _sensorCard('Right', '72 cm', Icons.east, teal),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: _sensorCard('System', 'Demo', Icons.memory, warning),
-                  ),
-                ],
-              );
-            },
+          _buildSensorSwitch(
+            title: 'Simulate front obstacle',
+            subtitle: 'Test whether forward movement is blocked',
+            value: frontObstacle,
+            icon: Icons.warning_amber_rounded,
+            onChanged: toggleObstacle,
+          ),
+          const SizedBox(height: 16),
+          _buildSensorZone(
+            title: 'REAR SENSOR',
+            distance: rearDistance,
+            isHazard: rearObstacle,
+            hazardLabel: 'Rear obstacle present in the demo',
+            clearLabel: 'Rear path clear in the demo',
+            icon: Icons.south,
+          ),
+          const SizedBox(height: 12),
+          _buildSensorSwitch(
+            title: 'Simulate rear obstacle',
+            subtitle: 'Test whether backward movement is blocked',
+            value: rearObstacle,
+            icon: Icons.south,
+            onChanged: toggleRearObstacle,
+          ),
+          const SizedBox(height: 16),
+          _buildSensorZone(
+            title: 'DOWNWARD SENSOR',
+            distance: downwardDistance,
+            isHazard: downwardHazard,
+            hazardLabel: 'Downward hazard present in the demo',
+            clearLabel: 'No downward hazard simulated',
+            icon: Icons.vertical_align_bottom,
+          ),
+          const SizedBox(height: 12),
+          _buildSensorSwitch(
+            title: 'Simulate downward hazard',
+            subtitle: 'Test whether forward movement is blocked',
+            value: downwardHazard,
+            icon: Icons.warning_amber_rounded,
+            onChanged: toggleDownwardHazard,
           ),
           const SizedBox(height: 20),
           _notice(
@@ -629,6 +572,113 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSensorZone({
+    required String title,
+    required int distance,
+    required bool isHazard,
+    required String hazardLabel,
+    required String clearLabel,
+    required IconData icon,
+  }) {
+    final color = isHazard ? danger : teal;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: _panelDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$distance',
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 9, left: 7),
+                child: Text(
+                  'cm · simulated',
+                  style: TextStyle(color: muted, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: (distance / 150).clamp(0.0, 1.0).toDouble(),
+            minHeight: 7,
+            borderRadius: BorderRadius.circular(10),
+            backgroundColor: panelLight,
+            color: color,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Icon(
+                isHazard ? Icons.warning_amber : Icons.check_circle,
+                color: color,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isHazard ? hazardLabel : clearLabel,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSensorSwitch({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required IconData icon,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      tileColor: panel,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(color: muted, fontSize: 12),
+      ),
+      secondary: Icon(icon, color: value ? danger : muted),
+      activeThumbColor: teal,
+      value: value,
+      onChanged: onChanged,
     );
   }
 
