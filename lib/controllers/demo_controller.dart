@@ -1,11 +1,14 @@
+import '../sensors/demo_sensor.dart';
+
 class DemoController {
+  final DemoSensor sensor = DemoSensor();
+
   String movementStatus = 'Stopped';
   String safetyMessage = 'System ready';
-  bool frontObstacle = false;
 
   bool get isMoving => movementStatus != 'Stopped';
-
-  int get frontDistance => frontObstacle ? 22 : 120;
+  bool get frontObstacle => sensor.frontObstacle;
+  int get frontDistance => sensor.frontDistance;
 
   void stopMovement() {
     movementStatus = 'Stopped';
@@ -29,7 +32,7 @@ class DemoController {
   }
 
   void toggleObstacle(bool value) {
-    frontObstacle = value;
+    sensor.setFrontObstacle(value);
 
     if (value && movementStatus == 'Forward') {
       movementStatus = 'Stopped';
