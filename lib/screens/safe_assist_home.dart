@@ -458,6 +458,58 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
     );
   }
 
+  Widget _buildSafetyOverview() {
+    final bool hazardDetected = frontObstacle || rearObstacle || downwardHazard;
+
+    final Color statusColor = hazardDetected ? danger : teal;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: _panelDecoration(),
+      child: Row(
+        children: [
+          Icon(
+            hazardDetected
+                ? Icons.warning_amber_rounded
+                : Icons.shield_outlined,
+            color: statusColor,
+            size: 32,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hazardDetected
+                      ? 'HAZARD DETECTED'
+                      : 'ALL SIMULATED PATHS CLEAR',
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  hazardDetected
+                      ? 'One or more simulated hazards are active.'
+                      : 'No simulated hazards are currently active.',
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Demo status only — not real sensor data.',
+                  style: TextStyle(color: muted, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _directionButton({
     required IconData icon,
     required String label,
@@ -505,6 +557,9 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
         children: [
           _sectionHeading('Safety monitor', 'Simulated sensor readings'),
+          const SizedBox(height: 16),
+
+          _buildSafetyOverview(),
           const SizedBox(height: 16),
           _notice(
             Icons.info_outline,
