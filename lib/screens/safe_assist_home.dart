@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../controllers/demo_controller.dart';
 import '../theme/app_theme.dart';
@@ -14,6 +15,13 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
   int selectedPage = 0;
 
   final DemoController controller = DemoController();
+  final stt.SpeechToText speech = stt.SpeechToText();
+
+  bool isListening = false;
+  bool speechAvailable = false;
+  bool voiceCommandHandled = false;
+
+  String recognizedSpeech = 'Tap the microphone to give a command';
 
   String get movementStatus => controller.movementStatus;
   String get safetyMessage => controller.safetyMessage;
@@ -49,10 +57,142 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
     });
   }
 
+  Future<void> toggleVoiceControl() async {
+    if (isListening) {
+      await speech.stop();
+
+      if (!mounted) return;
+
+      setState(() {
+        isListening = false;
+        if (recognizedSpeech == 'Listening...') {
+          recognizedSpeech = 'Listening stopped';
+        }
+      });
+
+      return;
+    }
+
+    try {
+      voiceCommandHandled = false;
+
+      speechAvailable = await speech.initialize(
+        onStatus: (status) {
+          if (!mounted) return;
+
+          if (status == 'notListening' || status == 'done') {
+            setState(() {
+              isListening = false;
+
+              if (recognizedSpeech == 'Listening...') {
+                recognizedSpeech = 'Listening ended. Tap to try again.';
+              }
+            });
+          }
+        },
+        onError: (error) {
+          if (!mounted) return;
+
+          setState(() {
+            isListening = false;
+            recognizedSpeech = 'Speech recognition error: ${error.errorMsg}';
+          });
+        },
+      );
+
+      if (!mounted) return;
+
+      if (!speechAvailable) {
+        setState(() {
+          isListening = false;
+          recognizedSpeech =
+              'Speech recognition unavailable. Check microphone permission.';
+        });
+        return;
+      }
+
+      setState(() {
+        isListening = true;
+        recognizedSpeech = 'Listening...';
+      });
+
+      await speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 5),
+          partialResults: true,
+          cancelOnError: true,
+        ),
+        onResult: (result) {
+          if (!mounted) return;
+
+          final words = result.recognizedWords.toLowerCase().trim();
+
+          setState(() {
+            if (words.isNotEmpty) {
+              recognizedSpeech = words;
+            } else if (isListening) {
+              recognizedSpeech = 'Listening...';
+            }
+          });
+
+          if (!result.finalResult || voiceCommandHandled) return;
+
+          String? command;
+
+          if (RegExp(r'\bstop\b').hasMatch(words)) {
+            command = 'STOP';
+          } else if (RegExp(r'\bforward\b').hasMatch(words)) {
+            command = 'Forward';
+          } else if (RegExp(r'\b(reverse|backward|back)\b').hasMatch(words)) {
+            command = 'Reverse';
+          } else if (RegExp(r'\bleft\b').hasMatch(words)) {
+            command = 'Left';
+          } else if (RegExp(r'\bright\b').hasMatch(words)) {
+            command = 'Right';
+          }
+
+          voiceCommandHandled = true;
+
+          if (command != null) {
+            issueCommand(command);
+
+            setState(() {
+              recognizedSpeech = 'Command recognized: $command';
+              isListening = false;
+            });
+
+            speech.stop();
+          } else {
+            setState(() {
+              recognizedSpeech = 'Command not recognized. Try Forward, Reverse, Left, Right, or Stop.';
+              isListening = false;
+            });
+
+            speech.stop();
+          }
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isListening = false;
+        recognizedSpeech = 'Could not start voice recognition';
+      });
+    }
+  }
+
   void toggleObstacle(bool value) {
     setState(() {
       controller.toggleObstacle(value);
     });
+  }
+
+  @override
+  void dispose() {
+    speech.cancel();
+    super.dispose();
   }
 
   @override
@@ -450,6 +590,58 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
             ),
           ),
           const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: _panelDecoration(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.mic_none_rounded, color: teal, size: 24),
+                    SizedBox(width: 10),
+                    Text(
+                      'Voice Control',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Demo Mode only. Say Forward, Reverse, Left, Right, or Stop.',
+                  style: TextStyle(color: muted, fontSize: 12),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: FilledButton.icon(
+                    onPressed: toggleVoiceControl,
+                    icon: Icon(
+                      isListening ? Icons.mic : Icons.mic_none_rounded,
+                    ),
+                    label: Text(
+                      isListening ? 'Stop Listening' : 'Start Voice Control',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: isListening ? danger : teal,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Recognized speech: $recognizedSpeech',
+                  style: const TextStyle(color: muted, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
           _buildMovementSummary(),
           const SizedBox(height: 16),
           _buildDisclaimer(),
@@ -460,7 +652,6 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
 
   Widget _buildSafetyOverview() {
     final bool hazardDetected = frontObstacle || rearObstacle || downwardHazard;
-
     final Color statusColor = hazardDetected ? danger : teal;
 
     return Container(
@@ -558,7 +749,6 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
         children: [
           _sectionHeading('Safety monitor', 'Simulated sensor readings'),
           const SizedBox(height: 16),
-
           _buildSafetyOverview(),
           const SizedBox(height: 16),
           _notice(
