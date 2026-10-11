@@ -20,7 +20,11 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
   bool isListening = false;
   bool speechAvailable = false;
   bool voiceCommandHandled = false;
+  bool continuousVoiceControl = false;
+  bool voiceRestartInProgress = false;
+  bool voiceSessionInitialized = false;
 
+  int voiceSessionId = 0;
   String recognizedSpeech = 'Tap the microphone to give a command';
 
   String get movementStatus => controller.movementStatus;
@@ -58,93 +62,203 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
   }
 
   Future<void> toggleVoiceControl() async {
-    if (isListening) {
-      await speech.stop();
-
-      if (!mounted) return;
-
-      setState(() {
-        isListening = false;
-        if (recognizedSpeech == 'Listening...') {
-          recognizedSpeech = 'Listening stopped';
-        }
-      });
-
+    if (continuousVoiceControl) {
+      await _stopVoiceControl(message: 'Voice control stopped');
       return;
     }
 
-    try {
-      voiceCommandHandled = false;
+    final int sessionId = ++voiceSessionId;
 
+    voiceRestartInProgress = false;
+    voiceSessionInitialized = false;
+    voiceCommandHandled = false;
+
+    setState(() {
+      continuousVoiceControl = true;
+      isListening = false;
+      recognizedSpeech = 'Initializing speech recognition...';
+    });
+
+    try {
       speechAvailable = await speech.initialize(
         onStatus: (status) {
-          if (!mounted) return;
+          if (!mounted ||
+              sessionId != voiceSessionId ||
+              !continuousVoiceControl) {
+            return;
+          }
+
+          if (status == 'listening') {
+            if (!isListening) {
+              setState(() {
+                isListening = true;
+              });
+            }
+            return;
+          }
 
           if (status == 'notListening' || status == 'done') {
-            setState(() {
-              isListening = false;
+            if (isListening) {
+              setState(() {
+                isListening = false;
+              });
+            }
 
-              if (recognizedSpeech == 'Listening...') {
-                recognizedSpeech = 'Listening ended. Tap to try again.';
-              }
-            });
+            if (!voiceRestartInProgress) {
+              _scheduleVoiceRestart(sessionId);
+            }
           }
         },
         onError: (error) {
-          if (!mounted) return;
+          if (!mounted ||
+              sessionId != voiceSessionId ||
+              !continuousVoiceControl) {
+            return;
+          }
 
           setState(() {
             isListening = false;
-            recognizedSpeech = 'Speech recognition error: ${error.errorMsg}';
+            recognizedSpeech = 'Speech error: ${error.errorMsg}';
           });
+
+          if (!voiceRestartInProgress) {
+            _scheduleVoiceRestart(sessionId);
+          }
         },
       );
 
-      if (!mounted) return;
+      if (!mounted || sessionId != voiceSessionId || !continuousVoiceControl) {
+        return;
+      }
 
       if (!speechAvailable) {
         setState(() {
+          continuousVoiceControl = false;
           isListening = false;
-          recognizedSpeech =
-              'Speech recognition unavailable. Check microphone permission.';
+          recognizedSpeech = 'Speech recognition unavailable. Check microphone permission and Android speech services.';
         });
         return;
       }
 
+      voiceSessionInitialized = true;
+      await _startVoiceListeningSession(sessionId);
+    } catch (e) {
+      if (!mounted || sessionId != voiceSessionId) return;
+
       setState(() {
-        isListening = true;
-        recognizedSpeech = 'Listening...';
+        continuousVoiceControl = false;
+        isListening = false;
+        recognizedSpeech = 'Could not initialize speech recognition: $e';
+      });
+    }
+  }
+
+  void _scheduleVoiceRestart(int sessionId) {
+    if (!mounted ||
+        !continuousVoiceControl ||
+        sessionId != voiceSessionId ||
+        selectedPage != 1 ||
+        voiceRestartInProgress) {
+      return;
+    }
+
+    _restartVoiceListening(sessionId);
+  }
+
+  Future<void> _restartVoiceListening(int sessionId) async {
+    if (voiceRestartInProgress ||
+        !mounted ||
+        !continuousVoiceControl ||
+        !voiceSessionInitialized ||
+        sessionId != voiceSessionId ||
+        selectedPage != 1) {
+      return;
+    }
+
+    voiceRestartInProgress = true;
+
+    try {
+      if (speech.isListening) {
+        await speech.stop();
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+
+      if (!mounted ||
+          !continuousVoiceControl ||
+          sessionId != voiceSessionId ||
+          selectedPage != 1) {
+        return;
+      }
+
+      voiceCommandHandled = false;
+
+      setState(() {
+        isListening = false;
+        recognizedSpeech = 'Listening for a command...';
       });
 
+      await _startVoiceListeningSession(sessionId);
+    } catch (e) {
+      if (mounted && sessionId == voiceSessionId && continuousVoiceControl) {
+        setState(() {
+          isListening = false;
+          recognizedSpeech = 'Could not restart listening: $e';
+        });
+      }
+    } finally {
+      voiceRestartInProgress = false;
+    }
+  }
+
+  Future<void> _startVoiceListeningSession(int sessionId) async {
+    if (!mounted ||
+        !continuousVoiceControl ||
+        sessionId != voiceSessionId ||
+        selectedPage != 1) {
+      return;
+    }
+
+    if (speech.isListening) {
+      return;
+    }
+
+    voiceCommandHandled = false;
+
+    setState(() {
+      isListening = true;
+      recognizedSpeech = 'Listening for a command...';
+    });
+
+    try {
       await speech.listen(
         listenOptions: stt.SpeechListenOptions(
+          localeId: 'en_IN',
           listenFor: const Duration(seconds: 30),
-          pauseFor: const Duration(seconds: 5),
+          pauseFor: const Duration(seconds: 3),
           partialResults: true,
-          cancelOnError: true,
+          cancelOnError: false,
         ),
         onResult: (result) {
-          if (!mounted) return;
+          if (!mounted ||
+              sessionId != voiceSessionId ||
+              !continuousVoiceControl ||
+              voiceCommandHandled) {
+            return;
+          }
 
-          final words = result.recognizedWords.toLowerCase().trim();
+          final String words = result.recognizedWords.toLowerCase().trim();
 
-          setState(() {
-            if (words.isNotEmpty) {
-              recognizedSpeech = words;
-            } else if (isListening) {
-              recognizedSpeech = 'Listening...';
-            }
-          });
-
-          if (!result.finalResult || voiceCommandHandled) return;
+          if (words.isEmpty) return;
 
           String? command;
 
-          if (RegExp(r'\bstop\b').hasMatch(words)) {
+          if (RegExp(r'\b(stop|halt|freeze)\b').hasMatch(words)) {
             command = 'STOP';
-          } else if (RegExp(r'\bforward\b').hasMatch(words)) {
+          } else if (RegExp(r'\b(forward|ahead)\b').hasMatch(words)) {
             command = 'Forward';
-          } else if (RegExp(r'\b(reverse|backward|back)\b').hasMatch(words)) {
+          } else if (RegExp(r'\b(reverse|backward|back|retreat)\b')
+              .hasMatch(words)) {
             command = 'Reverse';
           } else if (RegExp(r'\bleft\b').hasMatch(words)) {
             command = 'Left';
@@ -152,9 +266,9 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
             command = 'Right';
           }
 
-          voiceCommandHandled = true;
-
           if (command != null) {
+            voiceCommandHandled = true;
+
             issueCommand(command);
 
             setState(() {
@@ -162,25 +276,80 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
               isListening = false;
             });
 
-            speech.stop();
-          } else {
+            _scheduleVoiceRestart(sessionId);
+          } else if (result.finalResult) {
+            voiceCommandHandled = true;
+
             setState(() {
-              recognizedSpeech = 'Command not recognized. Try Forward, Reverse, Left, Right, or Stop.';
+              recognizedSpeech =
+                  'Heard "$words", but no command matched. Listening again...';
               isListening = false;
             });
 
-            speech.stop();
+            _scheduleVoiceRestart(sessionId);
+          } else {
+            setState(() {
+              recognizedSpeech = 'Heard: $words';
+            });
           }
         },
       );
+
+      if (!mounted || sessionId != voiceSessionId || !continuousVoiceControl) {
+        return;
+      }
+
+      if (!speech.isListening) {
+        setState(() {
+          isListening = false;
+        });
+
+        _scheduleVoiceRestart(sessionId);
+      }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || sessionId != voiceSessionId || !continuousVoiceControl) {
+        return;
+      }
 
       setState(() {
         isListening = false;
-        recognizedSpeech = 'Could not start voice recognition';
+        recognizedSpeech = 'Listening failed: $e';
       });
+
+      _scheduleVoiceRestart(sessionId);
     }
+  }
+
+  Future<void> _stopVoiceControl({String? message}) async {
+    continuousVoiceControl = false;
+    voiceSessionInitialized = false;
+    voiceCommandHandled = true;
+    voiceSessionId++;
+
+    try {
+      await speech.stop();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    setState(() {
+      isListening = false;
+      if (message != null) {
+        recognizedSpeech = message;
+      }
+    });
+  }
+
+  Future<void> _navigateTo(int index) async {
+    if (index != 1 && continuousVoiceControl) {
+      await _stopVoiceControl(message: 'Voice control stopped');
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      selectedPage = index;
+    });
   }
 
   void toggleObstacle(bool value) {
@@ -191,6 +360,9 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
 
   @override
   void dispose() {
+    continuousVoiceControl = false;
+    voiceSessionInitialized = false;
+    voiceSessionId++;
     speech.cancel();
     super.dispose();
   }
@@ -215,9 +387,7 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
         backgroundColor: panel,
         indicatorColor: teal.withValues(alpha: 0.18),
         selectedIndex: selectedPage,
-        onDestinationSelected: (index) {
-          setState(() => selectedPage = index);
-        },
+        onDestinationSelected: _navigateTo,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
@@ -372,7 +542,9 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
                   icon: Icons.gamepad_outlined,
                   title: 'Manual control',
                   subtitle: 'Open controls',
-                  onTap: () => setState(() => selectedPage = 1),
+                  onTap: () {
+                    _navigateTo(1);
+                  },
                 ),
               ),
               const SizedBox(width: 12),
@@ -381,7 +553,9 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
                   icon: Icons.radar,
                   title: 'Safety monitor',
                   subtitle: 'View sensor demo',
-                  onTap: () => setState(() => selectedPage = 2),
+                  onTap: () {
+                    _navigateTo(2);
+                  },
                 ),
               ),
             ],
@@ -622,13 +796,17 @@ class _SafeAssistHomeState extends State<SafeAssistHome> {
                   child: FilledButton.icon(
                     onPressed: toggleVoiceControl,
                     icon: Icon(
-                      isListening ? Icons.mic : Icons.mic_none_rounded,
+                      continuousVoiceControl
+                          ? Icons.mic
+                          : Icons.mic_none_rounded,
                     ),
                     label: Text(
-                      isListening ? 'Stop Listening' : 'Start Voice Control',
+                      continuousVoiceControl
+                          ? 'Stop Listening'
+                          : 'Start Continuous Voice Control',
                     ),
                     style: FilledButton.styleFrom(
-                      backgroundColor: isListening ? danger : teal,
+                      backgroundColor: continuousVoiceControl ? danger : teal,
                       foregroundColor: Colors.white,
                     ),
                   ),
